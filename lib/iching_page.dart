@@ -4,7 +4,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'iching_data.dart';
+import 'iching_data2.dart';
 
 // 1. 定義爻的資料結構
 enum IchingLine {
@@ -109,65 +109,95 @@ class _IchingPageState extends State<IchingPage> {
     return movingNames.join('、');
   }
 
-  // 在 _IchingPageState 類別內加入
-  void _showResult() {
-    // 1. 過濾掉 null 並確保只取前 6 爻（防止非預期錯誤）
-    // 因為 lines 現在是 [line, line, null, null, null, null] 這種形式
-    final activeLines = lines.whereType<IchingLine>().toList();
+  void _copyResult() {
+    final hexagramName = _getHexagramNamePair();
+    final movingInfo = _getMovingLineNames().isNotEmpty ? "動${_getMovingLineNames()}爻" : "無動爻";
+    final copyText = "$hexagramName $movingInfo";
 
-    if (activeLines.length < 6) return; // 安全檢查
+    Clipboard.setData(ClipboardData(text: copyText));
+    HapticFeedback.mediumImpact();
 
-    // 2. 計算本卦卦碼
-    String originalCode = activeLines.map((line) {
-      return (line.score == 7 || line.score == 9) ? "1" : "0";
-    }).join();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text("占卜結果已複製", textAlign: TextAlign.center),
+        backgroundColor: const Color(0xFF333333),
+        behavior: SnackBarBehavior.floating,
+        width: 200,
+        duration: const Duration(milliseconds: 800),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+    );
     
-    // 3. 計算變卦卦碼
-    String changedCode = activeLines.map((line) {
-      bool isYang = (line.score == 7 || line.score == 9);
-      bool isMoving = (line.score == 6 || line.score == 9);
-      
-      if (isMoving) {
-        return isYang ? "0" : "1"; // 變爻：陽變陰，陰變陽
-      } else {
-        return isYang ? "1" : "0"; // 不變
+  }
+
+  
+
+  void _showResult() {
+    final activeLines = lines.whereType<IchingLine>().toList();
+    if (activeLines.length < 6) return;
+
+    // 1. 計算本卦的 Binary Code
+    String originalCode = activeLines.map((line) => (line.score == 7 || line.score == 9) ? "1" : "0").join();
+
+    // 2. 獲取本卦資料
+    var original = ichingData[originalCode] ?? {"name": "未知", "meaning": "暫無卦辭", "lines": []};
+
+    // 3. 蒐集所有變爻的具體爻辭文字
+    List<String> movingLineTexts = [];
+    for (int i = 0; i < activeLines.length; i++) {
+      var line = activeLines[i];
+      if (line.score == 6 || line.score == 9) {
+        List<dynamic> originalLines = original['lines'] ?? [];
+        if (i < originalLines.length) {
+          movingLineTexts.add(originalLines[i]);
+        }
       }
-    }).join();
+    }
 
-    // 4. 取得資料並顯示 (其餘邏輯不變)
-    var original = ichingData[originalCode] ?? {"name": "未知", "meaning": ""};
-    var changed = ichingData[changedCode] ?? {"name": "未知", "meaning": ""};
+    // 4. 根據是否有動爻，動態決定標題與顯示內容
+    bool hasMovingLine = movingLineTexts.isNotEmpty;
+    String titleText = hasMovingLine ? "動爻爻辭" : original['name']!;
 
-    // 4. 彈出 iOS 風格的對話框
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF262626), // 深色彈窗背景
+        backgroundColor: const Color(0xFF262626),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Center(
-          child: Text("占卜結果", style: TextStyle(color: Color(0xFFF2EFE9), fontWeight: FontWeight.bold))
+        title: Center(
+          child: Text(
+            titleText, 
+            style: const TextStyle(color: Color(0xFFF2EFE9), fontWeight: FontWeight.bold)
+          )
         ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text("本卦", style: TextStyle(color: Colors.grey, fontSize: 12)),
-            const SizedBox(height: 8),
-            Text(original['name']!, style: const TextStyle(fontSize: 24, color: Color(0xFFF2EFE9), fontWeight: FontWeight.bold)),
-            const SizedBox(height: 4),
-            Text(original['meaning']!, textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFFCCCCCC))),
-
-            if (originalCode != changedCode) ...[
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 15),
-                child: Divider(color: Colors.white10, thickness: 1),
-              ),
-              const Text("變卦", style: TextStyle(color: Colors.grey, fontSize: 12)),
-              const SizedBox(height: 8),
-              Text(changed['name']!, style: const TextStyle(fontSize: 20, color: Color(0xFFF2EFE9), fontWeight: FontWeight.bold)),
-              const SizedBox(height: 4),
-              Text(changed['meaning']!, textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFFCCCCCC))),
-            ],
-          ],
+        content: SizedBox(
+          width: double.maxFinite, // 讓內容寬度自適應
+          child: SingleChildScrollView( // 避免爻辭字數太多時溢出螢幕
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (hasMovingLine) ...[
+                  // 【有動爻】時：逐條顯示動爻爻辭
+                  const SizedBox(height: 8),
+                  ...movingLineTexts.map((text) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: Text(
+                      text, 
+                      textAlign: TextAlign.center, 
+                      style: const TextStyle(color: Color(0xFFF2EFE9), fontSize: 15, height: 1.4)
+                    ),
+                  )),
+                ] else ...[
+                  // 【無動爻】時：顯示本卦卦辭
+                  const SizedBox(height: 12),
+                  Text(
+                    original['meaning']!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Color(0xFFF2EFE9), fontSize: 16, height: 1.5),
+                  ),
+                ],
+              ],
+            ),
+          ),
         ),
         actions: [
           Center(
@@ -228,38 +258,6 @@ class _IchingPageState extends State<IchingPage> {
                                     color: Color(0xFF888888),
                                     fontSize: 20,
                                     fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                                const SizedBox(width: 12), // 文字與按鈕的間距
-                                GestureDetector(
-                                  onTap: () {
-                                    // 複製內容同步調整：若無動爻則複製「卦名 無動爻」
-                                    final movingInfo = _getMovingLineNames().isNotEmpty 
-                                        ? "動${_getMovingLineNames()}爻" 
-                                        : "無動爻";
-                                    // 組合複製文字：例如 "剝之益 動初、五爻"
-                                    final copyText = "${_getHexagramNamePair()} $movingInfo";
-                                    
-                                    Clipboard.setData(ClipboardData(text: copyText));
-                                    // 輕微觸覺回饋，增加質感
-                                    HapticFeedback.mediumImpact();
-
-                                    // 顯示短暫提示
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: const Text("占卜結果已複製", textAlign: TextAlign.center),
-                                        backgroundColor: const Color(0xFF333333),
-                                        behavior: SnackBarBehavior.floating,
-                                        width: 200,
-                                        duration: const Duration(milliseconds: 800),
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                      ),
-                                    );
-                                  },
-                                  child: const Icon(
-                                    Icons.copy_all_rounded,
-                                    color: Color(0xFF555555), // 比文字更暗一點，不搶戲
-                                    size: 20,
                                   ),
                                 ),
                               ],
@@ -328,30 +326,52 @@ class _IchingPageState extends State<IchingPage> {
   }
 
   Widget _buildResultButtons() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        ElevatedButton(
-          onPressed: _showResult,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFFF2EFE9), // 象牙色
-            foregroundColor: const Color(0xFF1A1A1A),
-            minimumSize: const Size(120, 50), // 高度固定 50
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-          ),
-          child: const Text('查看結果', style: TextStyle(fontWeight: FontWeight.bold)),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            ElevatedButton(
+              onPressed: _showResult,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF333333), // 深灰色
+                foregroundColor: const Color(0xFFF2EFE9),
+                minimumSize: const Size(120, 50), // 高度固定 50
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              child: Text(
+                // 判斷 lines 中是否有包含老陰(6)或老陽(9)的動爻
+                lines.any((line) => line != null && (line.score == 6 || line.score == 9))
+                    ? '查看爻辭'
+                    : '查看卦辭',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+            const SizedBox(width: 12),
+            ElevatedButton(
+              onPressed: _getHexagramNamePair().isNotEmpty ? _copyResult : null,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF333333), // 深灰色
+                foregroundColor: const Color(0xFFF2EFE9),
+                minimumSize: const Size(120, 50), // 高度固定 50
+                side: const BorderSide(color: Color(0xFF444444)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              child: const Text('複製結果', style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ],
         ),
-        const SizedBox(width: 20),
+        const SizedBox(height: 12),
         ElevatedButton(
           onPressed: _resetDivination,
           style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF333333), // 深灰色
-            foregroundColor: const Color(0xFFF2EFE9),
-            minimumSize: const Size(120, 50), // 高度固定 50
-            side: const BorderSide(color: Color(0xFF444444)),
+            backgroundColor: const Color(0xFFF2EFE9), // 象牙色
+            foregroundColor: const Color(0xFF1A1A1A),
+            minimumSize: const Size(245, 50), // 高度固定 50
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           ),
-          child: const Text('再來一次'),
+          child: const Text('再來一次', style: TextStyle(fontWeight: FontWeight.bold)),
         ),
       ],
     );
@@ -515,4 +535,6 @@ class _IchingPageState extends State<IchingPage> {
       default: return "";
     }
   }
+
+  
 }
